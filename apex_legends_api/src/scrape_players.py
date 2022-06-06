@@ -1,9 +1,12 @@
 import bz2
+import boto3
 import time
 import pickle
 import requests
 import threading
 from bs4 import BeautifulSoup
+
+N = 5  # num players to scrape, this does not account for already scraped players
 
 class ApexPlayerScraper:
     HEADERS = {"Accept": "application/json"}
@@ -71,26 +74,26 @@ class ApexThread(threading.Thread):
         ApexThread.lock.release()     
 
 if __name__ == "__main__":
-    t0 = time.time()
 
-    #Load old data
+    # Load old data
+    s3 = boto3.resource('s3')
     try:
-        with bz2.BZ2File('apex_players.bz2', 'rb') as f:  #Use datacompression BZ2
-            data = pickle.load(f)
-            print(f'current num of player names: {len(data)}')
+        apex_players = s3.Bucket("apex-legends-proj").Object("test_dump.pkl").get()['Body']
+        data = pickle.load(apex_players)
+        print(f'current num of player names: {len(data)}')
     except:
         data = []
-       
 
-    player_names = ApexPlayerScraper().scrape_n_player_names(1000)
+    t0 = time.time()
 
+    # scrape N players
+    player_names = ApexPlayerScraper().scrape_n_player_names(N)
     newdata = player_names
     print(f"new players scraped: {len(list(set(data+newdata))) - len(data)}")
-    
+
     t1 = time.time()
     print(('took %f' % (t1 - t0)))
-    
-    #Save new data   
-    with bz2.BZ2File('apex_players.bz2', 'wb') as f: #Use datacompression BZ2
-        pickle.dump(list(set(data+newdata)), f)
-    
+
+    # add newly scraped data to old data
+    dump_obj = pickle.dumps(list(set(data+newdata)))
+    s3.Object("apex-legends-proj", "test_dump.pkl").put(Body=dump_obj)
